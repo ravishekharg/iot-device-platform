@@ -1,0 +1,34 @@
+groups:
+  - name: iot-platform
+    rules:
+      - alert: IngestStalled
+        # Devices are sending but nothing reaches Kafka: broker, ingest or Kafka is broken.
+        expr: sum(rate(sim_messages_sent_total{protocol="mqtt"}[5m])) > 0 and sum(rate(ingest_messages_total{kind="telemetry"}[5m])) == 0
+        for: 3m
+        labels: { severity: critical }
+        annotations:
+          summary: MQTT telemetry is not being ingested
+      - alert: WriterFallingBehind
+        expr: sum(writer_consumer_lag) > 5000
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $value }} messages waiting to be written to PostgreSQL"
+      - alert: FleetConnectivityDrop
+        # More than 20% of the fleet disconnected compared with 15 minutes ago.
+        expr: sum(sim_devices_connected) < 0.8 * sum(sim_devices_connected offset 15m)
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "Connected devices dropped to {{ $value }}"
+      - alert: ReconnectStorm
+        expr: sum(rate(sim_connect_attempts_total[1m])) > 50
+        for: 2m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $value | humanize }} connection attempts per second across the fleet"
+      - alert: LwM2MObserveFailures
+        expr: increase(bridge_observe_failures_total[10m]) > 10
+        labels: { severity: warning }
+        annotations:
+          summary: The platform cannot start observations on LwM2M devices

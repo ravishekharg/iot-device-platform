@@ -1,0 +1,136 @@
+# Platform services. ingest scales horizontally (shared MQTT subscription); writer scales up to
+# the number of Kafka partitions (one consumer per partition in the group); the bridge runs as a
+# single replica because it holds the one event stream from Leshan.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ingest
+  labels: { app.kubernetes.io/name: ingest }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app.kubernetes.io/name: ingest } }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: ingest }
+      annotations: { prometheus.io/scrape: "true", prometheus.io/port: "9100" }
+    spec:
+      securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
+      topologySpreadConstraints:
+        - { maxSkew: 1, topologyKey: topology.kubernetes.io/zone, whenUnsatisfiable: ScheduleAnyway, labelSelector: { matchLabels: { app.kubernetes.io/name: ingest } } }
+      containers:
+        - name: ingest
+          image: iot/ingest
+          envFrom: [{ configMapRef: { name: iot-config } }]
+          ports: [{ name: metrics, containerPort: 9100 }]
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { memory: 256Mi }
+          readinessProbe: { httpGet: { path: /metrics, port: metrics }, periodSeconds: 10 }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: ["ALL"] } }
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ingest
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: ingest }
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource: { name: cpu, target: { type: Utilization, averageUtilization: 70 } }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lwm2m-bridge
+  labels: { app.kubernetes.io/name: lwm2m-bridge }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }        # exactly one consumer of the Leshan event stream
+  selector: { matchLabels: { app.kubernetes.io/name: lwm2m-bridge } }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: lwm2m-bridge }
+      annotations: { prometheus.io/scrape: "true", prometheus.io/port: "9100" }
+    spec:
+      securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: bridge
+          image: iot/lwm2m-bridge
+          envFrom: [{ configMapRef: { name: iot-config } }]
+          ports: [{ name: metrics, containerPort: 9100 }]
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { memory: 256Mi }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: ["ALL"] } }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: writer
+  labels: { app.kubernetes.io/name: writer }
+spec:
+  replicas: 2                          # ≤ partitions per topic (6)
+  selector: { matchLabels: { app.kubernetes.io/name: writer } }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: writer }
+      annotations: { prometheus.io/scrape: "true", prometheus.io/port: "9100" }
+    spec:
+      securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: writer
+          image: iot/writer
+          envFrom:
+            - configMapRef: { name: iot-config }
+            - secretRef: { name: iot-secrets }
+          ports: [{ name: metrics, containerPort: 9100 }]
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { memory: 256Mi }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: ["ALL"] } }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  labels: { app.kubernetes.io/name: api }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app.kubernetes.io/name: api } }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: api }
+    spec:
+      securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: api
+          image: iot/api
+          envFrom:
+            - configMapRef: { name: iot-config }
+            - secretRef: { name: iot-secrets }
+          ports: [{ name: http, containerPort: 8000 }]
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { memory: 256Mi }
+          readinessProbe: { httpGet: { path: /health, port: http }, periodSeconds: 5 }
+          livenessProbe: { httpGet: { path: /metrics/, port: http }, periodSeconds: 20 }
+          lifecycle: { preStop: { sleep: { seconds: 10 } } }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: ["ALL"] } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+spec:
+  selector: { app.kubernetes.io/name: api }
+  ports: [{ name: http, port: 80, targetPort: http }]
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: api
+spec:
+  maxUnavailable: 1
+  selector: { matchLabels: { app.kubernetes.io/name: api } }

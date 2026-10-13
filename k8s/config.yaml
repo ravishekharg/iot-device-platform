@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: iot-config
+data:
+  KAFKA_BOOTSTRAP: "b-1.iot-msk.example.kafka.ap-south-1.amazonaws.com:9092"   # Amazon MSK
+  MQTT_HOST: mosquitto
+  LESHAN_API: http://leshan:8080/api
+---
+# Placeholder only: in a real cluster this Secret is created by External Secrets Operator from
+# AWS Secrets Manager (the RDS-managed master secret), never committed with a value.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: iot-secrets
+type: Opaque
+stringData:
+  DATABASE_URL: "postgresql://iot:REPLACE_ME@iot.cluster-example.ap-south-1.rds.amazonaws.com:5432/iot"

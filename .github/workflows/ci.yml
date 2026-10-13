@@ -1,0 +1,83 @@
+# Unit tests for every service, config validation, and a full end-to-end run: the whole stack
+# starts in the runner with a small simulated fleet, and the command scenarios (MQTT command +
+# ack, LwM2M reboot via the LwM2M server, offline queueing, last will on crash) must pass.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [simulator, ingest, lwm2m-bridge]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - working-directory: services/${{ matrix.service }}
+        run: |
+          pip install -r requirements.txt pytest httpx
+          python -m pytest -q
+
+  config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: compose file
+        run: docker compose config -q
+      - name: prometheus config and alert rules
+        run: |
+          docker run --rm -v "$PWD/infra/prometheus:/cfg" --entrypoint promtool prom/prometheus:v3.0.1 check rules /cfg/alerts.yml
+          sed 's#/etc/prometheus/alerts.yml#/cfg/alerts.yml#' infra/prometheus/prometheus.yml > /tmp/prometheus.yml
+          docker run --rm -v "$PWD/infra/prometheus:/cfg" -v /tmp/prometheus.yml:/tmp/prometheus.yml --entrypoint promtool prom/prometheus:v3.0.1 check config /tmp/prometheus.yml
+      - name: dashboard matches its generator
+        run: |
+          python3 infra/grafana/build_dashboard.py
+          git diff --exit-code infra/grafana/dashboards/
+      - name: kubernetes manifests (kustomize + kubeconform)
+        run: |
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz | tar xz
+          kubectl kustomize k8s > rendered.yaml
+          ./kubeconform -strict -summary -kubernetes-version 1.34.0 rendered.yaml
+
+  end-to-end:
+    runs-on: ubuntu-latest
+    needs: [unit]
+    steps:
+      - uses: actions/checkout@v4
+      - name: start the stack with a small fleet
+        env:
+          MQTT_DEVICES: "30"
+          LWM2M_DEVICES: "5"
+        run: |
+          docker compose up -d --build
+          for i in $(seq 1 60); do
+            n=$(curl -s localhost:8096/stats | python3 -c 'import sys,json; print(sum(d["devices"] for d in json.load(sys.stdin)["devices"] if d["status"]=="online"))' 2>/dev/null || echo 0)
+            echo "online devices: $n"; [ "$n" -ge 35 ] && break; sleep 5
+          done
+          [ "$n" -ge 35 ]
+      - name: telemetry reaches PostgreSQL through Kafka
+        run: |
+          sleep 20
+          curl -s localhost:8096/stats | tee /tmp/stats.json
+          python3 -c 'import json; s=json.load(open("/tmp/stats.json")); assert s["readings_last_minute"] > 0, s'
+      - name: command scenarios
+        run: bash scripts/demo-commands.sh
+      - name: logs on failure
+        if: failure()
+        run: docker compose logs --tail=80
+      - name: tear down
+        if: always()
+        run: docker compose down -v

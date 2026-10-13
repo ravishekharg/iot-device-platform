@@ -1,0 +1,3 @@
+aiocoap==0.4.12
+aiomqtt==2.3.0
+prometheus-client==0.21.1

@@ -1,0 +1,18 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+rule_files: [/etc/prometheus/alerts.yml]
+scrape_configs:
+  - job_name: simulator
+    static_configs: [{ targets: ["simulator:9100"] }]
+  - job_name: ingest
+    # Two replicas behind one name: a static target would scrape a random one each time and
+    # mix their counters. DNS discovery returns every replica's IP.
+    dns_sd_configs: [{ names: ["ingest"], type: A, port: 9100 }]
+  - job_name: lwm2m-bridge
+    static_configs: [{ targets: ["lwm2m-bridge:9100"] }]
+  - job_name: writer
+    static_configs: [{ targets: ["writer:9100"] }]
+  - job_name: api
+    metrics_path: /metrics/
+    static_configs: [{ targets: ["api:8000"] }]

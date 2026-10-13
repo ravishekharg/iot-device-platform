@@ -1,0 +1,58 @@
+# LwM2M server. CoAP is UDP, so devices reach it through an NLB (an ALB can't carry UDP).
+# A single replica keeps registrations in memory; to run several replicas, start Leshan with
+# --redis so registrations live in Redis (ElastiCache), and keep NLB stickiness on: DTLS
+# sessions are stateful.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: leshan
+  labels: { app.kubernetes.io/name: leshan }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app.kubernetes.io/name: leshan } }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: leshan }
+    spec:
+      securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: leshan
+          image: iot/leshan
+          ports:
+            - { name: coap, containerPort: 5683, protocol: UDP }
+            - { name: coaps, containerPort: 5684, protocol: UDP }
+            - { name: http, containerPort: 8080, protocol: TCP }
+          resources:
+            requests: { cpu: 200m, memory: 512Mi }
+            limits: { memory: 512Mi }
+          readinessProbe: { httpGet: { path: /api/clients, port: http }, periodSeconds: 10 }
+          livenessProbe: { tcpSocket: { port: http }, periodSeconds: 20 }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: leshan-devices
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: external
+    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+    service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+    # Source-IP stickiness so a device's DTLS session keeps landing on the same replica.
+    service.beta.kubernetes.io/aws-load-balancer-target-group-attributes: stickiness.enabled=true,stickiness.type=source_ip
+spec:
+  type: LoadBalancer
+  selector: { app.kubernetes.io/name: leshan }
+  ports:
+    - { name: coap, port: 5683, targetPort: coap, protocol: UDP }
+    - { name: coaps, port: 5684, targetPort: coaps, protocol: UDP }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: leshan
+spec:
+  selector: { app.kubernetes.io/name: leshan }
+  ports:
+    - { name: http, port: 8080, targetPort: http }

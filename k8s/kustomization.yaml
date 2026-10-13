@@ -1,0 +1,19 @@
+# Platform services on Kubernetes (EKS). Kafka and PostgreSQL are managed services (Amazon MSK,
+# Amazon RDS) referenced through iot-config / iot-secrets; the broker and LwM2M server are
+# exposed through Network Load Balancers because device traffic is TCP (MQTT) and UDP (CoAP).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: iot
+resources:
+  - namespace.yaml
+  - config.yaml
+  - leshan.yaml
+  - mosquitto.yaml
+  - services.yaml
+images:
+  - { name: iot/ingest, newName: ghcr.io/ravishekharg/iot-device-platform/ingest, newTag: "0.1.0" }
+  - { name: iot/lwm2m-bridge, newName: ghcr.io/ravishekharg/iot-device-platform/lwm2m-bridge, newTag: "0.1.0" }
+  - { name: iot/writer, newName: ghcr.io/ravishekharg/iot-device-platform/writer, newTag: "0.1.0" }
+  - { name: iot/api, newName: ghcr.io/ravishekharg/iot-device-platform/api, newTag: "0.1.0" }
+  - { name: iot/leshan, newName: ghcr.io/ravishekharg/iot-device-platform/leshan, newTag: "0.1.0" }
+  - { name: iot/mosquitto, newName: ghcr.io/ravishekharg/iot-device-platform/mosquitto, newTag: "0.1.0" }
