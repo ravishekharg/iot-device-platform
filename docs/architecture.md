@@ -50,7 +50,7 @@ flowchart LR
   - an anonymous client and a wrong password are refused;
   - a reading that device A publishes on device B's topic is dropped at the broker and never reaches PostgreSQL;
   - A's reading on its own topic does arrive (the positive control, so a broken pipeline can't pass as a working ACL);
-  - A's subscription to B's commands is refused.
+  - B's commands are never delivered to A, even with A subscribed to B's command topic. Mosquitto grants such a subscription and enforces read permission at delivery, which the test checks.
 - **What's left for production:**
   - TLS on 8883 with per-device X.509 certificates, so the identity is the certificate, not a password;
   - the broker binding the client id to that identity. Today a device that knows another's client id could still take over its session: a denial of service, not a data spoof, because the ACL is on the username.
