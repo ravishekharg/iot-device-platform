@@ -5,7 +5,7 @@
 #   2. a device with a wrong password is refused
 #   3. device A publishing a reading on device B's topic: dropped by the ACL, never reaches PostgreSQL
 #   4. device A publishing on its own topic (positive control): reaches PostgreSQL
-#   5. device A subscribing to device B's commands: refused
+#   5. device A subscribed to device B's commands: B's commands are never delivered to A
 # Exit 1 if any check fails.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -45,12 +45,22 @@ async def main():
         await c.publish(f"devices/{B}/telemetry", reading(float(os.environ["SPOOF"])), qos=1)   # someone else's topic
         await asyncio.sleep(1.1)                                    # distinct ts for the second reading
         await c.publish(f"devices/{A}/telemetry", reading(float(os.environ["OWN"])), qos=1)      # its own topic
+        # Mosquitto grants the subscription and enforces "read" when it delivers each message, so the test is
+        # delivery: the API sends B a command, and A, subscribed to B's command topic, must receive nothing
+        await c.subscribe(f"devices/{B}/commands", qos=1)
+        async with aiomqtt.Client("mosquitto", identifier=f"api-acl-test-{time.time_ns()}", username="api",
+                                  password="api-lab-only") as api:
+            await api.publish(f"devices/{B}/commands", json.dumps({"id": "acl-test", "action": "noop"}), qos=1)
+        leaked = []
+
+        async def listen():
+            async for m in c.messages:
+                leaked.append(str(m.topic))
         try:
-            granted = await c.subscribe(f"devices/{B}/commands", qos=1)
-            codes = [getattr(g, "value", g) for g in (granted if isinstance(granted, (list, tuple)) else [granted])]
-            check("subscribing to another device's commands refused", all(int(x) >= 0x80 for x in codes), codes)
-        except aiomqtt.MqttError as e:
-            check("subscribing to another device's commands refused", True, str(e))
+            await asyncio.wait_for(listen(), timeout=3)
+        except asyncio.TimeoutError:
+            pass
+        check("another device's commands are never delivered to it", not leaked, leaked or "nothing received in 3 s")
 
 asyncio.run(main())
 raise SystemExit(0 if all(results) else 1)
