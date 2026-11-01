@@ -41,3 +41,14 @@ def test_sensor_reading_shape():
     r = SensorState(device_id="d1").reading()
     assert set(r) == {"device_id", "ts", "temperature_c", "battery_pct", "rssi_dbm", "firmware"}
     assert 0 <= r["battery_pct"] <= 100
+
+
+def test_device_secret_matches_the_broker_provisioning():
+    # infra/mosquitto/Dockerfile derives the same value: HMAC-SHA256(fleet secret, device id), first 32 hex chars
+    import hashlib
+    import hmac
+
+    from sim.mqtt_device import device_secret
+    want = hmac.new(b"fleet-lab-only", b"sim-mqtt-00001", hashlib.sha256).hexdigest()[:32]
+    assert device_secret("sim-mqtt-00001", "fleet-lab-only") == want
+    assert device_secret("sim-mqtt-00001", "fleet-lab-only") != device_secret("sim-mqtt-00002", "fleet-lab-only")

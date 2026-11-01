@@ -75,6 +75,8 @@ jobs:
           python3 -c 'import json; s=json.load(open("/tmp/stats.json")); assert s["readings_last_minute"] > 0, s'
       - name: command scenarios
         run: bash scripts/demo-commands.sh
+      - name: device identity at the broker (auth, per-device topic ACLs, spoofing refused)
+        run: bash scripts/acl-test.sh
       - name: logs on failure
         if: failure()
         run: docker compose logs --tail=80

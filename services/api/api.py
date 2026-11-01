@@ -100,7 +100,9 @@ async def send_command(device_id: str, cmd: Command):
     if dev["protocol"] == "mqtt":
         if cmd.action not in ("reboot", "set_interval"):
             raise HTTPException(400, "MQTT devices support: reboot, set_interval")
-        async with aiomqtt.Client(MQTT_HOST, identifier=f"api-{cmd_id[:8]}") as client:
+        async with aiomqtt.Client(MQTT_HOST, identifier=f"api-{cmd_id[:8]}",
+                                  username=os.environ.get("MQTT_USERNAME", "api"),
+                                  password=os.environ.get("MQTT_PASSWORD", "api-lab-only")) as client:
             await client.publish(f"devices/{device_id}/commands",
                                  json.dumps({"id": cmd_id, "action": cmd.action, "value": cmd.value}), qos=1)
         delivery = "queued"   # the broker delivers it now, or when the device reconnects

@@ -1,0 +1,22 @@
+# Topic ACLs. The ingest service takes a device's identity from the topic (devices/<id>/...), never from the
+# payload, so the broker must guarantee that only device <id> can publish there. %u is the authenticated username,
+# which for a device is its device id.
+
+# Devices: only their own topics.
+pattern write devices/%u/telemetry
+pattern write devices/%u/status
+pattern write devices/%u/commands/ack
+pattern read devices/%u/commands
+
+# Ingest: reads everything devices send (through the shared subscription), writes nothing.
+user ingest
+topic read devices/+/telemetry
+topic read devices/+/status
+topic read devices/+/commands/ack
+topic read $share/+/devices/+/telemetry
+topic read $share/+/devices/+/status
+topic read $share/+/devices/+/commands/ack
+
+# API: sends commands, reads nothing.
+user api
+topic write devices/+/commands

@@ -107,4 +107,5 @@ a wider first-retry window and connection-rate limits at the broker (see
 | Unit tests | Simulator (TLV, SenML, backoff, links), ingest routing, bridge event parsing |
 | CI | Unit tests, Compose/Prometheus/dashboard/Kubernetes validation, and the full stack + command scenarios in the runner |
 | Kubernetes manifests | Rendered and schema-validated; **not yet deployed to a cluster** |
-| Not modelled | DTLS, LwM2M bootstrap and firmware update, real sleep in queue mode, broker TLS/ACLs (listed in [docs/protocols.md](docs/protocols.md)) |
+| Device identity at the broker | Every MQTT client authenticates (devices with a per-device secret, services as their own users) and a device may only use its own topics; `scripts/acl-test.sh` in CI: anonymous and wrong-password clients refused, a reading published on another device's topic never reaches PostgreSQL, subscribing to another device's commands refused |
+| Not modelled | DTLS, LwM2M bootstrap and firmware update, real sleep in queue mode, broker TLS (listed in [docs/protocols.md](docs/protocols.md)) |

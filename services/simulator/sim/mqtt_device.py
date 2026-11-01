@@ -17,8 +17,11 @@ Topics:
   devices/<id>/commands/ack     device → platform   {"id", "result"}, QoS 1
 """
 import asyncio
+import hashlib
+import hmac
 import json
 import logging
+import os
 import random
 
 import aiomqtt
@@ -30,6 +33,13 @@ from .backoff import exponential_delay, full_jitter_delay
 from .device_model import SensorState
 
 log = logging.getLogger("mqtt")
+
+
+def device_secret(device_id: str, fleet_secret: str | None = None) -> str:
+    """The per-device MQTT password: HMAC-SHA256(fleet secret, device id), as provisioned into the broker.
+    Stands in for a secret flashed at the factory; production uses a per-device X.509 certificate instead."""
+    key = (fleet_secret or os.environ.get("FLEET_SECRET", "fleet-lab-only")).encode()
+    return hmac.new(key, device_id.encode(), hashlib.sha256).hexdigest()[:32]
 
 
 class MqttDevice:
@@ -48,6 +58,7 @@ class MqttDevice:
         props.SessionExpiryInterval = self.session_expiry
         return aiomqtt.Client(
             hostname=self.host, port=self.port, identifier=self.device_id,
+            username=self.device_id, password=device_secret(self.device_id),
             protocol=aiomqtt.ProtocolVersion.V5, clean_start=False, properties=props,
             keepalive=60,  # must stay below NAT and load-balancer idle timeouts
             will=aiomqtt.Will(topic=f"{self.base}/status", payload="offline", qos=1, retain=True),

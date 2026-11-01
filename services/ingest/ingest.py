@@ -78,6 +78,8 @@ async def main() -> None:
     while True:
         try:
             async with aiomqtt.Client(MQTT_HOST, identifier=client_id, protocol=aiomqtt.ProtocolVersion.V5,
+                                      username=os.environ.get("MQTT_USERNAME", "ingest"),
+                                      password=os.environ.get("MQTT_PASSWORD", "ingest-lab-only"),
                                       clean_start=False, properties=props) as client:
                 for t in ("devices/+/telemetry", "devices/+/status", "devices/+/commands/ack"):
                     await client.subscribe(f"$share/{GROUP}/{t}", qos=1)
